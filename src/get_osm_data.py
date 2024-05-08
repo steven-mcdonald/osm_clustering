@@ -1,16 +1,17 @@
-import osmnx as ox # version: 1.0.1
-# run pip install overpy
-import overpy  # version: 0.6
-from shapely.geometry import Point  # version: 1.7.1
+import osmnx as ox
+import overpy
+from shapely.geometry import Point
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import folium
 import random
+import os
 
 import branca.colormap as cm
 
 from sklearn.cluster import DBSCAN # version: 0.24.1
 from collections import Counter
+
 
 def gen_poi_data(api, amenity_mapping):
     # iterate over all categories, call the overpass api,
@@ -68,22 +69,31 @@ def centroid_from_gdf(gdf):
     return centroid
 
 
-def gen_folium_html_map(admin, gdf_poi, column='amenity'):
+def gen_folium_map(centroid, gdf_poi, column='amenity', cluster_map=False, zoom_start=12,
+                   savepath='./html', savename='folium_map.html'):
 
-    # get the centroid of the city and set up the map
-    centroid = centroid_from_admin_geometry(admin)
-    m = folium.Map(location=centroid, zoom_start=12, tiles='Cartodb Positron')
-    colors = ['blue', 'green', 'red', 'purple', 'orange', 'pink', 'gray', 'cyan', 'magenta', 'yellow', 'lightblue', 'lime']
+    m = folium.Map(location=centroid, zoom_start=zoom_start, tiles='Cartodb Positron')
 
-    # transform the gdf_poi
-    amenity_colors = gen_color_dict(gdf_poi, column, colors)
+    if cluster_map:
+        # get unique, random colors for each cluster
+        unique_clusters = gdf_poi['cluster_id'].unique()
+        color_dict = gen_unique_color_dict(unique_clusters)
+    else:
+        colors = ['blue', 'green', 'red', 'purple', 'orange', 'pink', 'gray', 'cyan', 'magenta', 'yellow', 'lightblue',
+                  'lime']
+        # transform the gdf_poi
+        color_dict = gen_color_dict(gdf_poi, column, colors)
 
     # visualize the pois with a scatter plot
     for idx, row in gdf_poi.iterrows():
         amenity = row['amenity']
         lat = row['geometry'].y
         lon = row['geometry'].x
-        color = amenity_colors.get(amenity, 'gray')  # default to gray if not in the colormap
+        if cluster_map:
+            cluster_id = row['cluster_id']
+            color = color_dict[cluster_id]
+        else:
+            color = color_dict.get(amenity, 'gray')  # default to gray if not in the colormap
 
         folium.CircleMarker(
             location=[lat, lon],
@@ -95,7 +105,7 @@ def gen_folium_html_map(admin, gdf_poi, column='amenity'):
             popup=amenity,
         ).add_to(m)
 
-    m.save('./html/poi_map.html')
+    m.save(os.path.join(savepath, savename))
 
 
 def apply_dbscan_clustering(gdf_poi, eps=50, min_samples=1):
@@ -172,7 +182,11 @@ if __name__ == "__main__":
 
     plot_poi_map(gdf_poi)
 
-    gen_folium_html_map(admin, gdf_poi, column='amenity')
+    centroid = centroid_from_admin_geometry(admin)
+
+    # gen_folium_html_map(admin, gdf_poi, column='amenity')
+
+    gen_folium_map(centroid, gdf_poi, column='amenity', cluster_map=False, savename='poi_map.html')
 
     # do the clustering
 
@@ -204,33 +218,6 @@ if __name__ == "__main__":
     # get the centroid of the city and set up the map
     city_centroid = centroid_from_gdf(clustered_gdf_poi)
 
-    m2 = folium.Map(location=city_centroid, zoom_start=14,
-                   tiles='Cartodb Positron')
-
-    # get unique, random colors for each cluster
-    unique_clusters = clustered_gdf_poi['cluster_id'].unique()
-    color_dict = gen_unique_color_dict(unique_clusters)
-
-    # visualize the pois
-    for idx, row in clustered_gdf_poi.iterrows():
-        amenity = row['amenity']
-        lat = row['geometry'].y
-        lon = row['geometry'].x
-        cluster_id = row['cluster_id']
-        color = color_dict[cluster_id]
-
-        # create a dot marker
-        folium.CircleMarker(
-            location=[lat, lon],
-            radius=3,
-            color=color,
-            fill=True,
-            fill_color=color,
-            fill_opacity=0.9,
-            popup=amenity,
-        ).add_to(m2)
-
-    # show the map
-    m2.save('poi_cluster_map.html')
+    gen_folium_map(centroid, clustered_gdf_poi, column='amenity', cluster_map=True, savename='poi_cluster_map.html')
 
     print()
